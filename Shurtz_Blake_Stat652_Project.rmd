@@ -1,0 +1,454 @@
+---
+title: "Stat 652 Project"
+author: "Blake Shurtz"
+date: "February 6, 2019"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(pROC)
+library(rpart)
+library(partykit)
+library(naniar)
+library(caret)
+library(rethinking)
+library(knitr)
+library(rpart.plot)
+load(".RData", verbose = FALSE)
+d <- readRDS(file = "./Files/data/d") 
+```
+
+
+The goal of the project is to predict the **loan_status** of a given loan. A background introduction to the data set is provided. An exploratory analysis of the target variable yields a highly accurate null model of a subset of the data, which also reduces the remaining levels of the target to two. The dimension of the data is reduced through a walkthrough of its 144 features. Statistical and machine learning models are executed on training data and evaluated on test data. Compared to the [top model accuracy of 0.841](https://github.com/llSourcell/LoanDefault-Prediction), the models herein have predictive accuracies of between 96-98%.
+
+##Introduction
+
+Data on loans comes from the Lending Club website at [https://www.lendingclub.com/info/download-data.action](https://www.lendingclub.com/info/download-data.action). Data for the years 2012-2014 were downloaded, merged and cleaned. For a record of this process, see the rPub [here](http://rpubs.com/blakeobeans/466116). 
+
+```{r, echo=FALSE}
+TEMP <- matrix(1:4, nrow = 2, ncol = 2)
+TEMP <- as.data.frame(TEMP)
+TEMP$V1 <- c("Rows", "Columns")
+Value <- as.data.frame(dim(d))
+TEMP$V2 <- Value$`dim(d)`
+colnames(TEMP) <- c("Dimension", "Value")
+```
+
+```{r, echo=FALSE}
+kable(TEMP, title='Data Dimensions', caption="Dimension of Data")
+```
+
+##Exploratory Analysis
+
+```{r, echo=FALSE}
+TEMP <- NULL
+TEMP <- table(d$loan_status)
+TEMP <- as.data.frame(TEMP)
+TEMP$des <- c(
+  "*The original creditor has given up on being repaid according to the terms of the loan*",
+  "*The loan is open and is being re-paid*",
+  "*The loan won't be paid*",
+  "*The load has been paid*",
+  "*The loan is late, < 13 days*",
+  "*The next payment is past due by 13-30 days*",
+  "*The loan is late by 31-120 days*"
+)
+colnames(TEMP) <- c("Level", "Freq", "Description")
+kable(TEMP, caption= "Target Levels")
+```
+
+The two main categories as represented by their frequency are *Fully Paid* and *Charged-Off*.
+
+The third category by size is *Current*. We'll return to category this momentarily. 
+
+The last 3 categories, *In Grace Period*, *Late (13-30 days)*, and *Late (31-120 days)* are chronologically ordered levels between *Current* and *Charged-Off*. If a *Current* status loan is not repaid by the due date, it enters *In Grace Period*, then the two categories of lateness, then after 120 days the loan is categorized as *Charged-Off* then *Default*.
+
+\newpage
+
+###"loan_status =  Current" Data Subset
+
+Exploratory analysis indicates that loans classified as *Current* consistently have non-zero values for **out_prncp**, defined as "Remaining outstanding principal for total amount funded". In other words, current loans still have outstanding debt repayments. 
+
+```{r, include=FALSE}
+current <- d %>% filter(loan_status == "Current") %>% select(last_pymnt_d, out_prncp, out_prncp_inv, total_rec_late_fee, total_il_high_credit_limit)
+sum(current$out_prncp > 0)
+```
+
+As it turns out, almost all (14573/14585) *Current* loans have **out_princp** greater than 0. 
+
+```{r, include=FALSE}
+allelse <- d %>% filter(loan_status != "Current") %>% select(last_pymnt_d, out_prncp, out_prncp_inv, total_rec_late_fee, total_il_high_credit_limit)
+sum(allelse$out_prncp > 0)
+```
+
+Interestingly, only 903/409223 non-*Current* observations also have a non-zero value for this variable. It turns out that the remaining 903 observations are assigned to other categories of late-payers.
+
+In other words, **out_princ > 0** belongs exclusively to 5 levels of the target. Furthermore, the levels are overwhelmingly represented by the loan class of *Current*. 
+
+Therefore, by subsetting the data on the basis of **out_princp > 0** and applying the null model that all observations are  *Current*, I can achieve 94% accuracy on the subsetted data (comprising 3% of the total data). This also suggests that I can exclude **out_prncp** from subsequent models.
+
+In addition, by eliminating 5 of the 7 response categories, I'm left with only two categories to focus on: *Charged-Off* and and *Fully Paid.* Thus, the target **loan_status** becomes a binary variable, which will allow me to apply binary classification methods. 
+
+```{r, include=FALSE}
+# Removing the NA's for the response, **loan_status**. (n=4)
+d<- d[complete.cases(d[ ,"loan_status"]),]
+```
+
+
+###Missing Data
+
+Many variables are missing most or all of the data. See the figure on the next page. There is a pretty big drop-off between **mths_since_last_delinq** and **mths_since_recent_inq**, so I'll draw the line there. In all, 58 features were removed.
+
+```{r, fig.width=5, fig.height=20, message=FALSE, echo=FALSE, fig.align='center'}
+gg_miss_var(d)
+```
+
+```{r, remove variables, echo = FALSE}
+d <- d %>% select(-c(verification_status_joint, url, total_cu_tl, total_bal_il, sec_app_revol_util, sec_app_open_act_il, sec_app_open_acc, sec_app_num_rev_accts, sec_app_mths_since_last_major_derog, sec_app_mort_acc, sec_app_inq_last_6mths, sec_app_earliest_cr_line, sec_app_collections_12_mths_ex_med, sec_app_chargeoff_within_12_mths, revol_bal_joint, open_rv_12m, open_rv_24m, open_il_12m, open_act_il, open_acc_6m, mths_since_rcnt_il, max_bal_bc, inq_last_12m, inq_fi, il_util, hardship_end_date, dti_joint, annual_inc_joint, all_util, orig_projected_additional_accrued_interest, payment_plan_start_date, hardship_type, hardship_status, hardship_start_date, hardship_reason, hardship_payoff_balance_amount, hardship_loan_status, hardship_length, hardship_last_payment_amount, hardship_dpd, hardship_amount, deferral_term, open_il_24m, settlement_term, settlement_status, settlement_percentage, settlement_date, settlement_amount, debt_settlement_flag_date, next_pymnt_d, mths_since_last_record, desc, mths_since_last_major_derog, mths_since_recent_bc_dlq, mths_since_recent_revol_delinq, mths_since_last_delinq, emp_title, pymnt_plan, title, disbursement_method, policy_code, application_type))
+```
+
+\newpage
+##Dimension Reduction
+
+Before building the models, I have to reduce the number of features in my data. Otherwise, the ML models will take too long to compile.
+
+###Long Right-Tailed Variables
+
+There are a number of long right-tailed variables in the data set, which I define as a variable where the vast majority of the observations are 0, with a right-tail distribution that comprises around 5%-10% of the remaining observations. 
+
+The correlation between each of these features and the target were measured. 11 features with correlations of < 0.05 were removed.
+
+```{r, echo=FALSE, message=FALSE, eval=FALSE}
+TEMP <- d %>% filter(loan_status == "Charged Off" | loan_status == "Fully Paid") #subset data
+TEMP$loan_status <- as.numeric(TEMP$loan_status) #recode so correlation can be measured
+TEMP$loan_status <- ifelse(TEMP$loan_status==1, 1, 0) #recoding, 0 is fully paid, 1 is charged off.
+
+cor(TEMP$loan_status, TEMP$delinq_2yrs) #weak correlation, exclude
+cor(TEMP$loan_status, TEMP$inq_last_6mths) #stronger correlation, include
+cor(TEMP$loan_status, TEMP$pub_rec) #weak correlation, exclude
+cor(TEMP$loan_status, TEMP$total_rec_late_fee) #include
+cor(TEMP$loan_status, TEMP$recoveries) #include
+cor(TEMP$loan_status, TEMP$collections_12_mths_ex_med) #remove
+cor(TEMP$loan_status, TEMP$acc_now_delinq) #remove
+cor(TEMP$loan_status, TEMP$tot_coll_amt) #why NA? keep
+cor(TEMP$loan_status, TEMP$chargeoff_within_12_mths) #remove
+cor(TEMP$loan_status, TEMP$delinq_amnt) #remove
+cor(TEMP$loan_status, TEMP$num_tl_120dpd_2m) #include
+cor(TEMP$loan_status, TEMP$num_tl_90g_dpd_24m) #include
+cor(TEMP$loan_status, TEMP$pub_rec_bankruptcies) #remove
+cor(TEMP$loan_status, TEMP$tax_liens) #remove
+table(TEMP$hardship_flag) #redundant, remove
+```
+
+```{r, echo=FALSE}
+d <- d %>% select(-c(delinq_2yrs, pub_rec, out_prncp, out_prncp_inv, collections_12_mths_ex_med, acc_now_delinq, chargeoff_within_12_mths, delinq_amnt, pub_rec_bankruptcies, tax_liens, hardship_flag))
+```
+
+###Highly Correlated Predictors
+
+Just as there are features that are correlated with the target, there are also groups of features that are highly correlated with one another. The dimension of the data can be reduced by removing highly correlated predictors while maintaining the number of unique groups. 
+
+Four features can be removed: the **term** is reflected by the **int_rate**, so I'll remove **term**. **grade** and **sub_grade** are highly correlated, I'll remove **sub_grade**. **loan_amnt**/**funded_amnt**/**funded_amnt_inv** are similar, so I'll remove the latter two.
+
+```{r, echo=FALSE}
+d <- d %>% select(-c(term, sub_grade, funded_amnt, funded_amnt_inv))
+```
+
+###Date Variables
+
+There are four time series variables in the data set: **issue_d**, **earliest_cr_line**, **last_credit_pull_d** and **last_pymnt_d**. While time series variables can also be useful in an exploratory analysis, none are correlated with the target.
+
+```{r, echo=FALSE}
+#TEMP$issue_d <- as.numeric(TEMP$issue_d)
+#TEMP$earliest_cr_line <- as.numeric(TEMP$earliest_cr_line)
+#TEMP$last_credit_pull_d <- as.numeric(TEMP$last_credit_pull_d)
+#TEMP$last_pymnt_d <- as.numeric(TEMP$last_pymnt_d)
+#cor(TEMP$loan_status, TEMP$issue_d) #remove
+#cor(TEMP$loan_status, TEMP$earliest_cr_line) #remove
+#cor(TEMP$loan_status, TEMP$last_credit_pull_d) #remove
+#cor(TEMP$loan_status, TEMP$last_pymnt_d) #remove
+d <- d %>% select(-c(issue_d, earliest_cr_line, last_pymnt_d, last_credit_pull_d))
+```
+
+
+###Location Variables
+
+There are two variables that have data on the location of the loan: **zip_code** and **addr_state**, both of which are factors that have 50+ levels. The high number of levels will greatly slowdown the ML algorithm, so they will be excluded.
+
+```{r, echo=FALSE}
+#TEMP$zip_code <- as.factor(TEMP$zip_code); TEMP$zip_code <- as.numeric(TEMP$zip_code)
+#TEMP$addr_state <- as.factor(TEMP$addr_state) ; TEMP$addr_state <- as.numeric(TEMP$addr_state)
+#cor(TEMP$loan_status, TEMP$zip_code) #remove
+#cor(TEMP$loan_status, TEMP$addr_state) #remove
+d <- d %>% select(-c(zip_code, addr_state))
+```
+
+\newpage
+
+###What Remaining Features (Probably) Don't Matter?
+
+The remaining features were checked against a [data dictionary](https://resources.lendingclub.com/LCDataDictionary.xlsx) to decide a priori whether or not they are predictive of the target. While remaining open to surprises, the application of reasonable doubt to the features in question is a way to improve model performance with a low  hypothesized Type 1 error. When in doubt, correlations were checked.
+
+```{r, echo=FALSE, eval=FALSE}
+cor(TEMP$loan_status, TEMP$last_pymnt_amnt) #keep
+cor(TEMP$loan_status, TEMP$collection_recovery_fee) #keep
+TEMP$debt_settlement_flag <- as.numeric(TEMP$debt_settlement_flag) #keep
+cor(TEMP$loan_status, TEMP$debt_settlement_flag) #keep
+TEMP$initial_list_status <- as.numeric(TEMP$initial_list_status)
+cor(TEMP$loan_status, TEMP$initial_list_status) #drop
+cor(TEMP$loan_status, TEMP$installment) #weak
+TEMP$mo_sin_old_il_acct <- as.numeric(TEMP$mo_sin_old_il_acct)
+cor(TEMP$loan_status, TEMP$mo_sin_old_rev_tl_op) #weak
+```
+
+
+**acc_open_past_24mths**: Number of trades opened in past 24 months **Keep**  
+**annual_inc**: Self-reported income **Keep**  
+**avg_cur_bal**: How much is owed. Debt. **Keep**  
+**bc_open_to_buy**: Seems important to retail, not sure why it's here. **Drop**  
+**bc_util**: Current balance/credit limit. May be indicative of debt. **Keep**  
+**collection_recovery_fee**: Record of a small collection fee. Moderate correlation. **Keep**  
+**debt_settlement_flag**: Working with a debt-settlement company. Moderate correlation. **Keep**  
+**dti**: Debt-to-income **Keep**  
+**initial_list_status**: Whole or fractional loan. Weak correlation. **Drop**  
+**installment**: Monthly amount owed. Weak correlation. **Drop**  
+**last_pymnt_amnt**: Moderate correlation. **Keep**  
+**mo_sin_old_xxx**: Indicative of financial status at time of loan. NA correlation. **Drop**  
+**mort_acc**: Number of mortgage accounts. **Keep**  
+**id** and **member_id** are not predictors. **Drop**
+**emp_length** (employment length) has been tidied. **Keep* 
+
+```{r, include=FALSE}
+d <- d[,-c(1:2)]
+```
+
+```{r, include=FALSE}
+d$emp_length <- gsub("[^[:digit:]]","",d$emp_length)
+```
+
+```{r, echo=FALSE}
+d <- d %>% select(-c(bc_open_to_buy, initial_list_status, installment, mo_sin_old_il_acct, mo_sin_old_rev_tl_op))
+```
+
+##Training and Test Data
+
+I will divide the data up using the *createDataPartition* function in the **caret** package, "a series of test/training partitions are created using createDataPartition while createResample creates one or more bootstrap samples." (CRAN) The training data comprises 75% of the original data set.
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(1234)
+dindex <- createDataPartition(d$loan_status, p=.75, list=FALSE)
+train <- d[dindex,]; test <- d[-dindex,]
+```
+
+\newpage
+##Step 3: Training a model on the data
+
+###Model 0: Null Model
+
+First, I'll impose the null model by calling 5/7 classifiers *Current*. Subsequent models are conditional on this subset of the data. The remaining subset is called below:
+  
+```{r}
+traincat <- train %>% filter(loan_status == "Charged Off" | loan_status == "Fully Paid")
+traincat$loan_status <- as.numeric(traincat$loan_status) #recoding
+traincat$loan_status <- ifelse(traincat$loan_status==1, 1, 0) #0 is paid, 1 is charged
+```
+
+###Model 1: Classification Tree
+
+The classification tree model using recursive partitioning executed properly with all of the features.
+
+```{r, eval=FALSE, echo=FALSE}
+m.rpart <- rpart(loan_status ~ ., data = traincat)
+```
+
+```{r, echo = FALSE, fig.align='center'}
+rpart.plot(m.rpart)
+```
+
+
+The model mistakenly reports *Fully Paid* predictions as slightly greater than 0. Other than than, **recoveries** (which has a correlation of 0.5 with the outcome) is the sole predictor of whether someone has charged off, that is, has not paid their loan. 
+
+**recoveries** is defined as "post charge off gross recovery," suggesting that is represents a certain amount of written-off debt. This makes a lot of sense. No loans that have been fully paid would need has a gross recovery, and loans that have been charged off would have some partial forgiveness.
+
+The receipt of payments on the principal **total_rec_prncp** indicates that a loan is paid off. In short, paying principal is the best predictor that the loan will become *Fully Paid*.
+
+###Model 2: Logistic Regression
+
+A logistic regression works as a method of classification. I tried to fit as many remaining predictors as possible, while still allowing the model to converge.
+
+```{r, eval=FALSE }
+logit.mod <- glm(loan_status ~  
+            ###low correlation       
+            verification_status  + acc_open_past_24mths +
+            avg_cur_bal + mo_sin_rcnt_rev_tl_op + int_rate + grade + emp_length +
+            num_accts_ever_120_pd + num_actv_bc_tl + num_actv_rev_tl + num_bc_sats + 
+            num_bc_tl + pct_tl_nvr_dlq + loan_amnt +
+            ###moderate correlation
+            debt_settlement_flag #(r= 0.27)  
+            , data=traincat, family = binomial)
+```
+
+Four moderately correlated predictors lead the model to overfit: **recoveries** (0.53),  **last_pymnt_amnt** (-.29), **collection_recovery_fee** (0.46), **total_rec_prncp**(-0.39). R gives the warning: "glm.fit: fitted probabilities numerically 0 or 1 occurred."
+
+Attempts to add additional weaker predictors to the model caused the model to fail to converge and exclude observations: **home_ownership + annual_inc + purpose + dti + inq_last_6mths + open_acc + revol_bal + revol_util + total_acc + total_pymnt + total_pymnt_inv + total_rec_int + total_rec_late_fee + tot_coll_amt + tot_cur_bal + total_rev_hi_lim + total_bc_limit + total_il_high_credit_limit + num_il_tl + num_op_rev_tl + num_rev_accts + num_rev_tl_bal_gt_0 + mo_sin_rcnt_tl + mths_since_recent_bc + mths_since_recent_inq + percent_bc_gt_75 + tot_hi_cred_lim + num_sats + num_tl_120dpd_2m + num_tl_30dpd + num_tl_90g_dpd_24m + num_tl_op_past_12m + total_bal_ex_mort.**
+\newpage
+
+###Model 3: Logistic (Bayesian)
+
+Given the failure of the logit model to include all moderately correlated predictors, a Bayesian logistic model with adaptive priors will be introduced. 
+
+There were two executions of the model. The first execution ran 1000 iterations on the full training data set and the second ran 500 iterations on 25% of the training data (in order to decrease execution time). 
+
+```{r toomuchdata, echo=FALSE}
+set.seed(1234)
+traincatsmall <- sample_frac(traincat, 0.05, replace=FALSE)
+```
+
+```{r, eval=FALSE}
+#wrangle
+traincatsmall$debt_settlement_flag <- as.numeric(traincatsmall$debt_settlement_flag)
+set.seed(1234)
+options(mc.cores = parallel::detectCores())
+Sys.setenv(LOCAL_CPPFLAGS = '-march=native')
+logit.bayes.mod <- map2stan(
+    alist(
+      loan_status ~ dbinom( 1 , p ) ,
+      logit(p) <- a + b * debt_settlement_flag + c * recoveries +
+                  d * last_pymnt_amnt + e * collection_recovery_fee +
+                  f * total_rec_prncp,
+      #adaptive priors
+      a ~ dnorm( 0 , 1.5 ),
+      b ~ dnorm(b_mu, b_sigma),
+      b_mu ~ dnorm(0,1),
+      b_sigma ~ dcauchy(0,2), 
+      c ~ dnorm(c_mu, c_sigma),
+      c_mu ~ dnorm(0,1),
+      c_sigma ~ dcauchy(0,2),
+      d ~ dnorm(d_mu, d_sigma),
+      d_mu ~ dnorm(0,1),
+      d_sigma ~ dcauchy(0,2),
+      e ~ dnorm(e_mu, e_sigma),
+      e_mu ~ dnorm(0,1),
+      e_sigma ~ dcauchy(0,2),
+      f ~ dnorm(f_mu, f_sigma),
+      f_mu ~ dnorm(0,1),
+      f_sigma ~ dcauchy(0,2)
+) , data=traincat,
+ iter=1000, warmup=250, chains=1, cores=4)
+```
+
+Model convergence was poor with a large number of divergent samples. However, coefficients were calculated for all predictors. The regression model is below:
+
+$log \frac{p}{1-p} = 0.4756 - 0.762*debtsettlementflag + 2.434 * recoveries - 0.0008 * lastpaymentamount - 1.641 * collectionrecoveryfee -0.0002 * totalrecprncp$
+
+\newpage  
+
+##Step 4: Evaluating Model Performance
+
+Firstly, I have to subset the data in order to apply the null model **loan_status =**  *Current* to 5/7 levels. For each model evaluation, I will add this subset back into the final analysis after running the remaining data through the algorithm.
+
+Given that there are more than two levels of the outcome, accuracy is the preferred method of evaluation, along with confusion matricies. Note that for confusion matricies, the level 3 *Default (n=1)* was excluded. As a result of the programming, the level *Fully Paid* may be represented by either a 0 or a 4.
+
+```{r, echo=FALSE}
+testcatmisc <- test %>% filter(loan_status != "Charged Off")
+testcatmisc <- testcatmisc %>% filter(loan_status != "Fully Paid")
+testcatmisc$loan_status <- as.numeric(testcatmisc$loan_status) #null model assumes ALL predicted values are equal to 2
+predicted <- rep(2, nrow(testcatmisc))
+newdata <- as.data.frame(cbind(predicted, testcatmisc$loan_status))
+colnames(newdata) <- c("fitted", "actual")
+```
+
+###Null Model Evaluation
+
+After the data set is subsetted, a null model would assume that all loans are *Fully Paid*. This leads to an overall accuracy of 83.1%.
+
+```{r, eval=FALSE, echo=FALSE}
+testcat <- test %>% filter(loan_status == "Charged Off" | loan_status == "Fully Paid")
+table(testcat$loan_status)
+84426/(17653 + 84426)
+table(testcatmisc$loan_status)
+3646/(3646+90+31+104)
+(84426+3646)/(17653+84426+3646+91+31+104)
+```
+
+###CART Model Evaluation
+
+The CART model has an overall accuracy of 98%.
+
+```{r, echo=FALSE}
+testcat <- test %>% filter(loan_status == "Charged Off" | loan_status == "Fully Paid")
+#testcat$collection_recovery_fee
+testcat <- testcat %>% filter(home_ownership != "ANY") #weird
+p.rpart <- predict(m.rpart, newdata = testcat)
+p.rpart[p.rpart > .5] = 1; p.rpart[p.rpart < .5] = 4
+#table(p.rpart)
+#table(testcat$loan_status)
+newdata2 <- as.data.frame(cbind(p.rpart, testcat$loan_status))
+colnames(newdata2) <- c("fitted", "actual")
+rocdata <- rbind(newdata, newdata2)
+kable(table(rocdata), caption = "Confusion Matrix- CART Model" )
+#(16179+84425+3646)/(nrow(rocdata)) 
+```
+
+
+###Logit Evaluation
+
+The logit model has an overall accuracy of 79%.
+
+```{r, echo=FALSE}
+testcat <- test %>% filter(loan_status == "Charged Off" | loan_status == "Fully Paid")
+testcat$loan_status <- as.numeric(testcat$loan_status)
+testcat$loan_status <- ifelse(testcat$loan_status==1, 1, 0) #recoding, 0 is fully paid, 1 is charged off.
+
+test_pred <- predict(logit.mod, newdata=testcat, type="response") 
+test_pred[test_pred > .5] = 1; test_pred[test_pred < .5] = 0
+#table(test_pred)
+#table(testcat$loan_status)
+newdata2 <- as.data.frame(cbind(test_pred, testcat$loan_status))
+
+###bind the frames
+colnames(newdata2) <- c("fitted", "actual")
+rocdata <- rbind(newdata, newdata2) #combine subset
+kable(table(rocdata), caption = "Confusion Matrix- Logit Model")
+#(78532+1528+3646)/(nrow(rocdata))
+```
+
+\newpage
+
+###Logit Bayes Evaluation
+
+The logit Bayes model had an accuracy of 84% and 96%. The model that executed on a larger proportion of the training data with more iterations was more accurate.
+
+```{r, echo=FALSE, include=FALSE}
+#wrangle testcat
+testcat2 <- testcat
+testcat2$debt_settlement_flag <- as.numeric(testcat2$debt_settlement_flag) #for model
+testcat2$loan_status <- as.numeric(testcat2$loan_status) #for prediction
+#calculate test data p's
+p <- logit.bayes.mod@coef[["a"]] + logit.bayes.mod@coef[["b"]] * testcat2$debt_settlement_flag + logit.bayes.mod@coef[["c"]] * testcat2$recoveries + 
+     logit.bayes.mod@coef[["d"]] * testcat2$last_pymnt_amnt + logit.bayes.mod@coef[["e"]] * testcat2$collection_recovery_fee +
+     logit.bayes.mod@coef[["f"]] * testcat2$total_rec_prncp 
+ep <- exp(p)/(1+exp(p))
+ep[ep > .5] = 1; ep[ep < .5] = 0
+```
+
+```{r, echo=FALSE}
+#create confusion matrix
+newdata2 <- as.data.frame(cbind(ep, testcat$loan_status))
+colnames(newdata2) <- c("fitted", "actual")
+rocdata <- rbind(newdata, newdata2)
+kable(table(rocdata), caption = "Confusion Matrix- Bayes Logit" )
+#(84425+2917+3646)/(84425+3544+2917+3646+90+31+104) #96% accuracy
+```
+
+##Conclusion
+
+On the entryway to Bruce Lee's dojo, there was a sign that read: "Reject what is useless. Accept what is useful." Bruce Lee is remembered as a martial artist who judged his ability as a fighter against all possibilities, ie. randomness. He synthesized what worked and what didn't into his own system of classification.
+
+There are many models that I could have used in this project. But, because I have achieved 95%+ accuracy with both a statistical learning and machine learning algorithms, I will consider the assignment a success. I also put a lot of credit on the model success on a thourough exploratory analysis.

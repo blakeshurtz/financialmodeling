@@ -1,0 +1,211 @@
+---
+title: "Shurtz_Blake_Stat652_Project_Download"
+author: "Blake Shurtz"
+date: "February 6, 2019"
+output: html_document
+---
+
+```{r }
+library(tidyverse)
+library(lubridate)
+```
+
+
+##Downloading Data
+
+There are two files to download, the 2012-2013 data (LoanStats3b) and the 2014 data (LoanStats3c).
+```{r }
+#note the http instead of https
+URL <- 'https://resources.lendingclub.com/LoanStats3b.csv.zip'
+download.file(URL, destfile = "./LoanStats3b.zip")
+
+URL <- "https://resources.lendingclub.com/LoanStats3c.csv.zip"
+download.file(URL, destfile = "./LoanStats3c.zip")
+```
+
+```{r }
+unzip("./LoanStats3b.zip", exdir="./Files/data")
+unzip("./LoanStats3c.zip",exdir="./Files/data")
+```
+
+```{r}
+fn <- "./LoanStats3b.zip"
+if (file.exists(fn)) file.remove(fn)
+fn <- "./LoanStats3c.zip"
+if (file.exists(fn)) file.remove(fn)
+```
+
+```{r}
+file="./Files/data/LoanStats3b.csv"
+headers = read.csv(file, skip = 1, header = F, nrows = 1, as.is = T)
+d3b = read.csv(file, skip = 3, header = F)
+colnames(d3b)= headers
+
+file="./Files/data/LoanStats3c.csv"
+headers = read.csv(file, skip = 1, header = F, nrows = 1, as.is = T)
+d3c = read.csv(file, skip = 3, header = F)
+colnames(d3c)= headers
+```
+
+##Merging Data
+
+```{r}
+d <- bind_rows(d3b, d3c) #lots of character coercion
+```
+
+##Cleaning Data
+
+```{r}
+###convert blanks to NA's: remember, this is NOT equating 0's with blanks
+d[d==""] <- NA
+
+### First 10 Variables###
+str(d[,1:10])
+###terms- convert NA's and clean up factoring
+d$term <- as.numeric(d$term); d$term <- as.factor(d$term); levels(d$term) <- c("36 months", "60 months")
+table(d$term); sum(is.na(d$term))
+str(d$term)
+###interest rate- convert from character with % to numeric
+d$int_rate<- as.numeric(sub("%", "", d$int_rate))
+###grade- convert NA's and clean up factoring
+d$grade <- as.numeric(d$grade); d$grade <- as.factor(d$grade); levels(d$grade) <- c("A", "B", "C", "D", "E", "F", "G")
+table(d$grade); sum(is.na(d$grade))
+sum(is.na(d$grade))
+###sub_grade- clean up factoring
+TEMP <- levels(d$sub_grade); TEMP <- TEMP[-1]
+d$sub_grade <- as.numeric(d$sub_grade); d$sub_grade <- as.factor(d$sub_grade); levels(d$sub_grade) <- TEMP
+table(d$sub_grade); sum(is.na(d$sub_grade))
+sum(is.na(d$sub_grade))
+
+###11-20###
+str(d[,11:20])
+###emp_title: convert blanks to NAs
+###sub_grade- clean up factoring
+TEMP <- levels(d$emp_length); TEMP <- TEMP[-1]
+d$emp_length <- as.numeric(d$emp_length); d$emp_length <- as.factor(d$emp_length); levels(d$emp_length) <- TEMP
+table(d$emp_length); sum(is.na(d$emp_length))
+sum(is.na(d$emp_length)); str(d$emp_length)
+###verification_status- clean up factoring
+TEMP <- levels(d$verification_status); TEMP <- TEMP[-1]
+d$verification_status <- as.numeric(d$verification_status); d$verification_status <- as.factor(d$verification_status); levels(d$verification_status) <- TEMP
+table(d$verification_status); sum(is.na(d$verification_status))
+sum(is.na(d$verification_status)); str(d$verification_status)
+###issue_d
+d$issue_d <- parse_date_time(d$issue_d, "my")
+d$issue_d <- as_date(d$issue_d)
+###loan status- convert to factor
+d$loan_status <- as.factor(d$loan_status)
+###pymnt_plan- express as factor
+d$pymnt_plan <- as.factor(d$pymnt_plan)
+###URL is weird... exclude from analysis
+###desc is definately character.
+
+###21-30###
+str(d[,21:30])
+###purpose- clean up factoring
+TEMP <- levels(d$purpose); TEMP <- TEMP[-1]
+d$purpose <- as.numeric(d$purpose); d$purpose <- as.factor(d$purpose); levels(d$purpose) <- TEMP
+table(d$purpose); sum(is.na(d$purpose))
+sum(is.na(d$purpose)); str(d$purpose)
+###earliest_cr_line as date
+d$earliest_cr_line <- parse_date_time(d$earliest_cr_line, "my")
+d$earliest_cr_line <- as_date(d$earliest_cr_line)
+
+###31-40###
+str(d[,31:40])
+###revol_util from percent to numeric
+d$revol_util<- as.numeric(sub("%", "", d$revol_util))
+###initial_list_status- clean up factoring
+TEMP <- levels(d$initial_list_status); TEMP <- TEMP[-1]
+d$initial_list_status <- as.numeric(d$initial_list_status); d$initial_list_status <- as.factor(d$initial_list_status); levels(d$initial_list_status) <- TEMP
+table(d$initial_list_status); sum(is.na(d$initial_list_status))
+sum(is.na(d$initial_list_status)); str(d$initial_list_status)
+
+###41-50###
+str(d[,41:50])
+###last_pymnt_d as date
+d$last_pymnt_d <- parse_date_time(d$last_pymnt_d, "my")
+d$last_pymnt_d <- as_date(d$last_pymnt_d)
+###next_pymnt_d- clean up factoring
+TEMP <- levels(d$next_pymnt_d); TEMP <- TEMP[-1]
+d$next_pymnt_d <- as.numeric(d$next_pymnt_d); d$next_pymnt_d <- as.factor(d$next_pymnt_d); levels(d$next_pymnt_d) <- TEMP
+table(d$next_pymnt_d); sum(is.na(d$next_pymnt_d))
+sum(is.na(d$next_pymnt_d)); str(d$next_pymnt_d)
+###hardship_end_date as date
+d$hardship_end_date <- parse_date_time(d$hardship_end_date, "my")
+d$hardship_end_date <- as_date(d$hardship_end_date)
+
+###51-60###
+str(d[,51:60])
+###application type: individual or not (or blank?)
+TEMP <- levels(d$application_type); TEMP <- TEMP[-1]
+d$application_type <- as.numeric(d$application_type); d$application_type <- as.factor(d$application_type); levels(d$application_type) <- TEMP
+table(d$application_type); sum(is.na(d$application_type))
+sum(is.na(d$application_type)); str(d$application_type)
+
+###61-70###
+str(d[,61:70])
+
+###71-80###
+str(d[,71:80])
+
+###81-90###
+str(d[,81:90])
+
+###91-100###
+str(d[,91:100])
+
+###101-110###
+str(d[,101:110])
+
+###111-120###
+str(d[,111:120])
+
+###121-130###
+str(d[,121:130])
+###hardship type: individual or not (or blank?)
+TEMP <- levels(d$hardship_type); TEMP <- TEMP[-1]
+d$hardship_type <- as.numeric(d$hardship_type); d$hardship_type <- as.factor(d$hardship_type); levels(d$hardship_type) <- TEMP
+table(d$hardship_type); sum(is.na(d$hardship_type))
+sum(is.na(d$hardship_type)); str(d$hardship_type)
+###hardship_start_date as date
+d$hardship_start_date <- parse_date_time(d$hardship_start_date, "my")
+d$hardship_start_date <- as_date(d$hardship_start_date)
+###hardship_end_date as date
+d$hardship_end_date <- parse_date_time(d$hardship_end_date, "my")
+d$hardship_end_date <- as_date(d$hardship_end_date)
+
+###131-140###
+str(d[,131:140])
+###payment_plan_start_date as date
+d$payment_plan_start_date <- parse_date_time(d$payment_plan_start_date, "my")
+d$payment_plan_start_date <- as_date(d$payment_plan_start_date)
+###hardship_loan_status: 
+TEMP <- levels(d$hardship_loan_status); TEMP <- TEMP[-1]
+d$hardship_loan_status <- as.numeric(d$hardship_loan_status); d$hardship_loan_status <- as.factor(d$hardship_loan_status); levels(d$hardship_loan_status) <- TEMP
+table(d$hardship_loan_status); sum(is.na(d$hardship_loan_status))
+sum(is.na(d$hardship_loan_status)); str(d$hardship_loan_status)
+###disbursement_method: individual factor?
+TEMP <- levels(d$disbursement_method); TEMP <- TEMP[-1]
+d$disbursement_method <- as.numeric(d$disbursement_method); d$disbursement_method <- as.factor(d$disbursement_method); levels(d$disbursement_method) <- TEMP
+table(d$disbursement_method); sum(is.na(d$disbursement_method))
+sum(is.na(d$disbursement_method)); str(d$disbursement_method)
+###debt_settlement_flag as factor
+TEMP <- levels(d$debt_settlement_flag); TEMP <- TEMP[-1]
+d$debt_settlement_flag <- as.numeric(d$debt_settlement_flag); d$debt_settlement_flag <- as.factor(d$debt_settlement_flag); levels(d$debt_settlement_flag) <- TEMP
+table(d$debt_settlement_flag); sum(is.na(d$debt_settlement_flag))
+sum(is.na(d$debt_settlement_flag)); str(d$debt_settlement_flag)
+
+###141-145###
+str(d[,141:145])
+###settlement_status as factor
+TEMP <- levels(d$settlement_status); TEMP <- TEMP[-1]
+d$settlement_status <- as.numeric(d$settlement_status); d$settlement_status <- as.factor(d$settlement_status); levels(d$settlement_status) <- TEMP
+table(d$settlement_status); sum(is.na(d$settlement_status))
+sum(is.na(d$settlement_status)); str(d$settlement_status)
+
+```
+
+```{r}
+saveRDS(d, file = "./Files/data/d")
+```
