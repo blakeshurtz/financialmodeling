@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1561659349211.000,
+    "dirty" : false,
+    "encoding" : "ISO8859-1",
+    "folds" : "",
+    "hash" : "3722263620",
+    "id" : "D5F484E3",
+    "lastKnownWriteTime" : 1561750408,
+    "last_content_update" : 1561750408492,
+    "path" : "D:/Google Drive/Statistics/creditlimit/creditlimit/scripts/wrangle_main.R",
+    "project_path" : "scripts/wrangle_main.R",
+    "properties" : {
+        "cursorPosition" : "10,16",
+        "scrollLine" : "0"
+    },
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

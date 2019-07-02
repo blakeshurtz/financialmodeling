@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1561750050545.000,
+    "dirty" : false,
+    "encoding" : "ISO8859-1",
+    "folds" : "",
+    "hash" : "753501560",
+    "id" : "A26CD7D3",
+    "lastKnownWriteTime" : 1561750425,
+    "last_content_update" : 1561750425083,
+    "path" : "D:/Google Drive/Statistics/creditlimit/creditlimit/scripts/import_data.r",
+    "project_path" : "scripts/import_data.r",
+    "properties" : {
+        "cursorPosition" : "29,0",
+        "scrollLine" : "24"
+    },
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}
